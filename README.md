@@ -165,26 +165,34 @@ straight into the search field.
 
 ## What lands on the clipboard
 
-A Wayland clipboard claim carries **one** representation, and the last claim
-wins — there is no "offer the GIF and the MP4 and let the app pick". So a render
-copies exactly one thing, and the widget setting **Copy to the clipboard as**
-decides which:
+A Wayland clipboard claim carries **one** representation and the last claim
+wins, so "put both on the clipboard" means claiming twice. That is what a render
+does by default: the **MP4** as a file reference, a beat later the **GIF** as a
+file reference. Your clipboard history ends up with two entries and you pick the
+one the app you are pasting into wants — the GIF is what a plain `Ctrl+V` gets.
 
-| Setting | What is copied | Paste behaviour |
-| --- | --- | --- |
-| **GIF file** (default) | `text/uri-list` with the `.gif` | Chat apps attach the file, so it stays animated — this is what "send a GIF" usually means |
-| **MP4 file** | `text/uri-list` with the `.mp4` | For apps that will not take a GIF, or that re-encode it anyway |
-| **GIF image** | `image/gif` bytes | Pastes straight into an image editor; image-only targets often flatten it to one frame |
+Why you need the choice: WhatsApp Web flattens a pasted GIF *image* into a still
+frame, but takes the MP4 file happily; other apps are the other way round.
+
+The widget setting **Copy to the clipboard as** changes this:
+
+| Setting | What is copied |
+| --- | --- |
+| **GIF and MP4** (default) | both, as `text/uri-list` file references — MP4 first, GIF live |
+| **GIF file** | only the `.gif` |
+| **MP4 file** | only the `.mp4` |
+| **GIF image** | the GIF's bytes as `image/gif` — pastes into an image editor |
 
 Both files are always written to `~/.cache/gif-captioner/renders/<timestamp>/`
-(the twenty newest renders are kept), so you can attach either one by hand
-whatever the setting says.
+(the twenty newest renders are kept), so you can attach either by hand whatever
+the setting says.
 
-Clipboard history managers are their own story: Omarchy's history watches
-`text` and `image/png` only, so a file reference shows up there as its path and
-a GIF image does not show up at all — and a manager that stores images by
-decoding them will hand you a single frame when you paste from its history.
-Pasting the live clipboard right after the render is always the faithful path.
+One caveat about clipboard histories: a manager that keeps the offered MIME
+types (Vicinae does) re-offers `text/uri-list`, so pasting from its history
+attaches the file exactly like the live clipboard. Omarchy's own history stores
+text entries as plain text and re-copies them that way, so picking a render
+there gives you the *path* rather than the file — fine for dropping into a
+terminal, not for attaching.
 
 ## How it works
 

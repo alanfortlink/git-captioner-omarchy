@@ -58,14 +58,13 @@ Panel {
   property string captionColor: Model.normalizeHex(setting("color", "#ffffff")) || "#ffffff"
   property int captionSize: setting("fontSize", 20)
   // What a render puts on the clipboard. A Wayland claim carries one
-  // representation and the last claim wins, so this is a choice, not a
-  // combination: the .gif as a file (animation survives the paste), the .mp4 as
-  // a file (for apps that refuse GIFs), or the GIF's bytes as an image (pastes
-  // straight into editors, but image-only targets and clipboard histories tend
-  // to flatten it to one frame).
-  readonly property var copyModes: ({ "GIF file": "gif-file", "MP4 file": "mp4-file",
-                                      "GIF image": "gif-image" })
-  readonly property string copyAs: copyModes[String(setting("copy", "GIF file"))] || "gif-file"
+  // representation and the last claim wins, so "both" means claiming twice: the
+  // MP4 first, the GIF second, leaving two entries in your clipboard history to
+  // choose between (WhatsApp Web, for one, flattens a pasted GIF image but
+  // takes the MP4 file happily).
+  readonly property var copyModes: ({ "GIF and MP4": "both", "GIF file": "gif-file",
+                                      "MP4 file": "mp4-file", "GIF image": "gif-image" })
+  readonly property string copyAs: copyModes[String(setting("copy", "GIF and MP4"))] || "both"
   // Tools the render script needs. Checked at startup and on every open, so a
   // half-installed system says so instead of failing at render time.
   property var missingTools: []

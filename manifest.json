@@ -22,7 +22,7 @@
       "anchor": "Bottom",
       "color": "#ffffff",
       "fontSize": 20,
-      "copy": "GIF file",
+      "copy": "GIF and MP4",
       "rating": "pg-13",
       "shortcut": ""
     },
@@ -38,7 +38,11 @@
         "key": "anchor",
         "type": "enum",
         "label": "Caption position",
-        "options": ["Top", "Middle", "Bottom"],
+        "options": [
+          "Top",
+          "Middle",
+          "Bottom"
+        ],
         "defaultValue": "Bottom"
       },
       {
@@ -61,15 +65,25 @@
         "key": "copy",
         "type": "enum",
         "label": "Copy to the clipboard as",
-        "options": ["GIF file", "MP4 file", "GIF image"],
-        "defaultValue": "GIF file",
-        "description": "A clipboard claim carries one representation. A file reference keeps the animation when you paste it into a chat; GIF image pastes the frames straight into an editor but often arrives as a single frame."
+        "options": [
+          "GIF and MP4",
+          "GIF file",
+          "MP4 file",
+          "GIF image"
+        ],
+        "defaultValue": "GIF and MP4",
+        "description": "A clipboard claim carries one representation, so \"GIF and MP4\" copies twice: the MP4, then the GIF. Both end up in your clipboard history and you pick the one the app you are pasting into wants — some (WhatsApp Web) flatten a pasted GIF image but take the MP4 file."
       },
       {
         "key": "rating",
         "type": "enum",
         "label": "Giphy rating",
-        "options": ["g", "pg", "pg-13", "r"],
+        "options": [
+          "g",
+          "pg",
+          "pg-13",
+          "r"
+        ],
         "defaultValue": "pg-13"
       }
     ]
