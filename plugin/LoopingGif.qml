@@ -1,19 +1,24 @@
 import QtQuick
 
-// An AnimatedImage that ignores the GIF's own loop count.
+// An AnimatedImage that actually loops.
 //
-// Plenty of Giphy files (and most of their downsampled preview variants) carry
-// a finite NETSCAPE loop count, so Qt plays them the stated number of times and
-// then stops on the last frame — a thumbnail grid that freezes a few seconds
-// after a search, and a caption preview that dies while you are still typing.
-// Rewind and start again whenever playback ends while it is still wanted.
+// Qt plays a GIF straight off the network reply, and a network reply cannot be
+// rewound: with `cache: false` the movie reaches its last frame and stops dead
+// there — `playing` goes false and no amount of restarting brings it back —
+// even though the file says "loop forever". Caching the frames makes the movie
+// seekable, so it loops on its own. (A GIF from a *local file* loops without
+// the cache, which is why the caption preview downloads first and points here
+// at a file:// URL.)
+//
+// The restart below is the belt to that pair of braces: a file with a finite
+// loop count still ends, and a preview that freezes mid-typing looks broken.
 AnimatedImage {
   id: root
 
   // Play while this is true; set it false to freeze (panel closed, other stage).
   property bool wanted: true
 
-  cache: false
+  cache: true
   asynchronous: true
   playing: false          // driven by sync(), never bound: Qt writes to it too
 

@@ -44,6 +44,9 @@ Item {
     anchors.fill: parent
     source: root.source
     wanted: root.playing
+    // A local file is seekable, so it loops without holding every decoded
+    // frame in memory — and a full-size GIF is exactly where that would hurt.
+    cache: String(root.source).indexOf("file://") !== 0
     fillMode: Image.PreserveAspectFit
   }
 

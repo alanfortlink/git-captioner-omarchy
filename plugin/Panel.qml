@@ -34,7 +34,9 @@ Panel {
   readonly property string renderScript: repoDir + "/bin/gif-captioner-render"
   readonly property string homeDir: Quickshell.env("HOME") || ""
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (homeDir + "/.config")
+  readonly property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (homeDir + "/.cache")
   readonly property string keyFile: configHome + "/gif-captioner/config"
+  readonly property string mediaDir: cacheHome + "/gif-captioner/media"
 
   // ---- state ----
   // None of this survives closing the panel: every open starts on an empty
@@ -117,6 +119,7 @@ Panel {
     searching = false
     searchSeq++              // a search still in flight lands on nothing
     selected = null
+    previewFile = ""
     caption = ""
     captionField.text = ""
     editField = 0
@@ -492,9 +495,45 @@ Panel {
     selected = results[index]
     lastGif = ""
     lastMp4 = ""
+    previewFile = ""
+    fetchPreview()
     stage = "edit"
     statusText = ""
     focusEditField(0)
+  }
+
+  // The preview plays from a local copy, not from the URL: Qt cannot rewind a
+  // network reply, so a streamed GIF stops on its last frame, and caching every
+  // frame of a full-size GIF in the shell's memory is not the answer either.
+  // The thumbnail stands in until the file lands.
+  property string previewFile: ""
+  function fetchPreview() {
+    if (!selected) return
+    var id = String(selected.id || "").replace(/[^A-Za-z0-9_-]/g, "")
+    if (id === "") return
+    var path = mediaDir + "/" + id + ".gif"
+    previewProc.running = false
+    previewProc.target = path
+    previewProc.command = ["sh", "-c",
+      'dir=$1; out=$2; url=$3; mkdir -p "$dir" || exit 1; ' +
+      '[ -s "$out" ] || curl -fsSL --proto "=https" --proto-redir "=https" --max-redirs 5 ' +
+      '  --max-filesize 67108864 --max-time 30 -o "$out.part" -- "$url" || exit 1; ' +
+      '[ -f "$out.part" ] && mv -f "$out.part" "$out"; ' +
+      // Keep the newest 40 files, so browsing a few searches does not grow
+      // without bound.
+      'ls -1t "$dir"/*.gif 2>/dev/null | tail -n +41 | while read -r old; do rm -f -- "$old"; done; ' +
+      'exit 0',
+      "gif-captioner-preview", mediaDir, path, String(selected.url)]
+    previewProc.running = true
+  }
+
+  Process {
+    id: previewProc
+    property string target: ""
+    stderr: StdioCollector { }
+    onExited: function(code) {
+      if (code === 0 && root.selected) root.previewFile = previewProc.target
+    }
   }
 
   // A render keeps running when you go back or close the panel — it copies and
@@ -1187,7 +1226,9 @@ Panel {
           anchors.right: parent.right
           anchors.bottom: metaLine.top
           anchors.bottomMargin: Style.spacing.sm
-          source: root.selected ? root.selected.url : ""
+          // The local copy once it is there, the thumbnail meanwhile.
+          source: root.previewFile !== "" ? "file://" + root.previewFile
+                : (root.selected ? String(root.selected.thumb) : "")
           caption: root.caption
           anchorMode: root.anchorMode
           captionColor: root.captionColor
