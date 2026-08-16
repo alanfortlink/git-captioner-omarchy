@@ -98,11 +98,13 @@ validate the checkout itself, not the link.
 | --- | --- |
 | Search field | type a query · `Enter` searches · `↓` or `Tab` moves into the grid · `Ctrl+,` settings · `Esc` clears, then closes |
 | Grid | `hjkl` or arrows · `Enter` captions the GIF under the cursor · `g` / `G` first / last · `/` or `k` on the top row goes back to the field · `,` settings · `Esc` closes |
-| Caption | type (`Enter` = new line) · **`Ctrl+Enter`** (or `Ctrl+R`) renders and copies · `Tab` / `Shift+Tab` cycles caption → position → color → size · `Ctrl+1/2/3` top / middle / bottom · `Ctrl+↑` / `Ctrl+↓` size · `Esc` back to the grid |
+| Caption | type (`Enter` = new line) · **`Ctrl+Enter`** (or `Ctrl+R`) renders and copies · `Tab` / `Shift+Tab` cycles caption → position → color → size · `Enter` on the colour opens the palette (arrows + `Enter` to pick) · `Ctrl+1/2/3` top / middle / bottom · `Ctrl+↑` / `Ctrl+↓` size · `Esc` back to the grid |
 
-Under the caption box: position (top / middle / bottom), color (`#rrggbb`) and
-size. They default to whatever the widget's settings say (Setup > Plugins), so
-your usual look is one keystroke away every time.
+Under the caption box: position (top / middle / bottom), color and size. Click
+the colour swatch — or press `Enter` on the colour control — for a palette you
+can walk with the arrows and pick with `Enter`; the field next to it still takes
+any `#rrggbb` you type. All three default to whatever the widget's settings say
+(Setup > Plugins), so your usual look is one keystroke away every time.
 
 Closing the panel throws the session away: every open starts on an empty search.
 A render that is already running still finishes and copies, even with the panel

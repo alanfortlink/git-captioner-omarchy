@@ -56,7 +56,7 @@ Panel {
   property string caption: ""
   property string anchorMode: String(setting("anchor", "Bottom")).toLowerCase()
   property string captionColor: Model.normalizeHex(setting("color", "#ffffff")) || "#ffffff"
-  property int captionSize: setting("fontSize", 32)
+  property int captionSize: setting("fontSize", 20)
   // Tools the render script needs. Checked at startup and on every open, so a
   // half-installed system says so instead of failing at render time.
   property var missingTools: []
@@ -74,6 +74,38 @@ Panel {
 
   property int editField: 0                // 0 caption · 1 position · 2 color · 3 size
   property int settingsField: 0            // 0 API key · 1 shortcut
+
+  // Colour picker. Typing a hex still works; this is for the other 95% of the
+  // time, when you just want white, or yellow, or that red.
+  readonly property var palette: ["#ffffff", "#000000", "#ffe600", "#ff9500",
+                                  "#ff3b30", "#ff2d95", "#af52de", "#5856d6",
+                                  "#0a84ff", "#32ade6", "#34c759", "#8e8e93"]
+  readonly property int paletteColumns: 6
+  property bool paletteOpen: false
+  property int paletteIndex: 0
+
+  function togglePalette() {
+    if (paletteOpen) { paletteOpen = false; restoreFocus(); return }
+    var at = palette.indexOf(captionColor)
+    paletteIndex = at < 0 ? 0 : at
+    paletteOpen = true
+    restoreFocus()
+  }
+
+  function movePalette(delta) {
+    if (!paletteOpen) return
+    var next = paletteIndex + delta
+    if (next < 0 || next >= palette.length) return
+    paletteIndex = next
+  }
+
+  function pickPalette(index) {
+    if (index < 0 || index >= palette.length) return
+    captionColor = palette[index]
+    colorField.text = captionColor
+    paletteOpen = false
+    restoreFocus()
+  }
   property bool rendering: false
   property string lastGif: ""
   property string lastMp4: ""
@@ -131,7 +163,7 @@ Panel {
     // GIF you captioned.
     anchorMode = String(setting("anchor", "Bottom")).toLowerCase()
     captionColor = Model.normalizeHex(setting("color", "#ffffff")) || "#ffffff"
-    captionSize = setting("fontSize", 32)
+    captionSize = setting("fontSize", 20)
     keyField.text = giphyKey
   }
 
@@ -560,11 +592,28 @@ Panel {
   function editKey(event) {
     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
     var shift = (event.modifiers & Qt.ShiftModifier) !== 0
+
+    // While the palette is up it owns the arrows, Enter and Esc.
+    if (paletteOpen) {
+      if (event.key === Qt.Key_Escape) paletteOpen = false
+      else if (event.key === Qt.Key_Left) movePalette(-1)
+      else if (event.key === Qt.Key_Right) movePalette(1)
+      else if (event.key === Qt.Key_Up) movePalette(-paletteColumns)
+      else if (event.key === Qt.Key_Down) movePalette(paletteColumns)
+      else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+               || event.key === Qt.Key_Space) pickPalette(paletteIndex)
+      else return
+      event.accepted = true
+      return
+    }
+
     if (event.key === Qt.Key_Escape) {
       backToSearch()
     } else if (ctrl && (event.key === Qt.Key_R || event.key === Qt.Key_Return
                         || event.key === Qt.Key_Enter)) {
       render()
+    } else if (editField === 2 && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+      togglePalette()
     } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
       focusEditField(editField + (shift || event.key === Qt.Key_Backtab ? -1 : 1))
     } else if (ctrl && event.key === Qt.Key_1) {
@@ -1219,6 +1268,56 @@ Panel {
         // Catch-all for controls that don't take keys themselves (buttons).
         Keys.onPressed: function(event) { root.editKey(event) }
 
+        // Colour palette, over the preview so it never resizes the panel.
+        // Click the swatch, or press Enter on the colour field, to open it.
+        BorderSurface {
+          id: paletteBox
+          visible: root.paletteOpen
+          z: 10
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: controls.top
+          anchors.bottomMargin: Style.spacing.sm
+          height: paletteGrid.height + Style.spacing.md * 2
+          radius: Style.cornerRadius
+          color: Color.popups.background
+          borderSpec: Border.controlSpec("normal", root.fg, Color.accent)
+
+          MouseArea { anchors.fill: parent }   // clicks stay inside the palette
+
+          Grid {
+            id: paletteGrid
+            anchors.centerIn: parent
+            columns: root.paletteColumns
+            spacing: Style.spacing.sm
+
+            Repeater {
+              model: root.palette
+
+              Rectangle {
+                required property int index
+                required property string modelData
+                readonly property bool current: root.paletteIndex === index
+
+                width: Style.space(30)
+                height: Style.space(24)
+                radius: Math.max(1, Style.cornerRadius / 2)
+                color: modelData
+                border.width: current ? Math.max(2, Style.space(3)) : 1
+                border.color: current ? Color.accent : Qt.rgba(1, 1, 1, 0.25)
+
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onContainsMouseChanged: if (containsMouse) root.paletteIndex = index
+                  onClicked: root.pickPalette(index)
+                }
+              }
+            }
+          }
+        }
+
         CaptionPreview {
           id: preview
           anchors.top: parent.top
@@ -1321,15 +1420,25 @@ Panel {
             }
             }
 
-            // The colour, as itself.
+            // The colour, as itself — and the way into the palette.
             Rectangle {
               anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(12)
+              width: Style.spacing.controlHeight - Style.spacing.xs * 2
               height: width
               radius: Math.max(1, Style.cornerRadius / 2)
               color: root.captionColor
-              border.width: 1
-              border.color: Qt.rgba(1, 1, 1, 0.35)
+              border.width: root.paletteOpen ? Math.max(1, Style.space(2)) : 1
+              border.color: root.paletteOpen ? Color.accent : Qt.rgba(1, 1, 1, 0.35)
+
+              MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Style.spacing.xs
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  root.editField = 2
+                  root.togglePalette()
+                }
+              }
             }
 
             TextField {
