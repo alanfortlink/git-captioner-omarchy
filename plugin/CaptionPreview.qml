@@ -39,13 +39,11 @@ Item {
     return box - (lines.length - index) * lineHeight - margin
   }
 
-  AnimatedImage {
+  LoopingGif {
     id: image
     anchors.fill: parent
     source: root.source
-    playing: root.playing
-    cache: false
-    asynchronous: true
+    wanted: root.playing
     fillMode: Image.PreserveAspectFit
   }
 

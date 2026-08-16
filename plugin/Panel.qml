@@ -883,14 +883,12 @@ Panel {
               color: cell.current ? Color.accent : "transparent"
               clip: true
 
-              AnimatedImage {
+              LoopingGif {
                 anchors.fill: parent
                 anchors.margins: cell.current ? Math.max(2, Style.space(3)) : 0
                 source: cell.modelData.thumb
-                playing: root.opened && root.stage === "search"
+                wanted: root.opened && root.stage === "search"
                 opacity: cell.current ? 1 : 0.68
-                cache: false
-                asynchronous: true
                 fillMode: Image.PreserveAspectCrop
               }
             }
