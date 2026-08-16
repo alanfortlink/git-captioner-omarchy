@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "alanfortlink.gif-captioner",
+  "name": "GIF Captioner",
+  "version": "0.1.0",
+  "author": "alanfortlink",
+  "license": "MIT",
+  "description": "Search Giphy, caption a GIF, and copy the captioned GIF and MP4 to the clipboard, from a bar widget.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "plugin/Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "GIF Captioner",
+    "description": "Search Giphy, caption a GIF, and copy the result (GIF + MP4) to the clipboard.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "anchor": "Bottom",
+      "color": "#ffffff",
+      "fontSize": 32,
+      "rating": "pg-13",
+      "shortcut": ""
+    },
+    "schema": [
+      {
+        "key": "shortcut",
+        "type": "string",
+        "label": "Keyboard shortcut",
+        "defaultValue": "",
+        "description": "Opens the panel from anywhere, e.g. SUPER ALT G or ALT SHIFT G. Registered with Hyprland while the widget is enabled; leave empty for none."
+      },
+      {
+        "key": "anchor",
+        "type": "enum",
+        "label": "Caption position",
+        "options": ["Top", "Middle", "Bottom"],
+        "defaultValue": "Bottom"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Caption color",
+        "defaultValue": "#ffffff",
+        "description": "Hex color such as #ffffff or #ffee00."
+      },
+      {
+        "key": "fontSize",
+        "type": "integer",
+        "label": "Caption size",
+        "min": 8,
+        "max": 200,
+        "step": 2,
+        "defaultValue": 32
+      },
+      {
+        "key": "rating",
+        "type": "enum",
+        "label": "Giphy rating",
+        "options": ["g", "pg", "pg-13", "r"],
+        "defaultValue": "pg-13"
+      }
+    ]
+  }
+}

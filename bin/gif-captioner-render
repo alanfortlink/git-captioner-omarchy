@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# Download a GIF, burn a caption into it, encode an MP4, and put both on the
+# clipboard. Driven by the shell plugin (plugin/Panel.qml) through Process, but
+# usable on its own:
+#
+#   gif-captioner-render --url URL [--text-file FILE] [--anchor top|middle|bottom]
+#                        [--color '#ffffff'] [--size 32] [--no-copy] [--out-dir DIR]
+#
+# Progress goes to stdout as `status: …` lines, the results as `gif: <path>` /
+# `mp4: <path>`; anything that failed goes to stderr with a non-zero exit.
+#
+# The recipe mirrors the other two gif-captioner apps: one drawtext filter per
+# caption line (each line centered on its own), fps=15 + lanczos downscale to
+# max 360px wide, then a full palettegen/paletteuse pass so busy frames don't
+# speckle. The MP4 is what most chat apps actually accept.
+set -euo pipefail
+
+URL=""
+TEXT_FILE=""
+ANCHOR="bottom"
+COLOR="#ffffff"
+SIZE=32
+COPY=true
+OUT_DIR=""
+
+MAX_WIDTH=360
+SIZE_LIMIT=$((12 * 1024 * 1024))    # re-encode smaller past this (matches the Rust TUI)
+MAX_DOWNLOAD=$((64 * 1024 * 1024))  # refuse to pull more than this off the network
+
+die() { echo "error: $*" >&2; exit 1; }
+say() { echo "status: $*"; }
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --url) URL=${2:-}; shift 2;;
+    --text-file) TEXT_FILE=${2:-}; shift 2;;
+    --anchor) ANCHOR=${2:-}; shift 2;;
+    --color) COLOR=${2:-}; shift 2;;
+    --size) SIZE=${2:-}; shift 2;;
+    --out-dir) OUT_DIR=${2:-}; shift 2;;
+    --no-copy) COPY=false; shift;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0;;
+    *) die "unknown argument: $1";;
+  esac
+done
+
+[[ -n $URL ]] || die "--url is required"
+# The URL comes from a Giphy API response, i.e. from the network: keep it to
+# plain https so a crafted response cannot turn it into a curl option, another
+# protocol (file://, dict://) or a plaintext fetch.
+[[ $URL == https://* ]] || die "--url must be an https:// URL"
+# The output directory is interpolated into the ffmpeg filter graph below, where
+# these characters are separators.
+[[ -n $OUT_DIR && $OUT_DIR == *[:\'\\]* ]] && die "--out-dir must not contain : ' or \\"
+case $ANCHOR in top|middle|bottom) ;; *) die "--anchor must be top, middle or bottom";; esac
+[[ $SIZE =~ ^[0-9]+$ ]] || die "--size must be a number"
+(( SIZE >= 8 && SIZE <= 200 )) || die "--size must be between 8 and 200"
+
+# ffmpeg wants 0xRRGGBB; the UI speaks #rrggbb.
+COLOR=${COLOR#\#}
+[[ $COLOR =~ ^[0-9a-fA-F]{6}$ ]] || die "--color must be #rrggbb"
+FONT_COLOR="0x$COLOR"
+
+command -v ffmpeg >/dev/null || die "ffmpeg is not installed"
+command -v ffprobe >/dev/null || die "ffprobe is not installed"
+command -v curl >/dev/null || die "curl is not installed"
+
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/gif-captioner
+if [[ -z $OUT_DIR ]]; then
+  OUT_DIR=$CACHE/renders/$(date +%s%N)
+fi
+mkdir -p "$OUT_DIR"
+
+IN=$OUT_DIR/in.gif
+OUT_GIF=$OUT_DIR/out.gif
+OUT_MP4=$OUT_DIR/out.mp4
+
+say "Downloading…"
+curl -fsSL --proto '=https' --proto-redir '=https' --max-redirs 5 \
+     --max-filesize $MAX_DOWNLOAD --max-time 30 -o "$IN" -- "$URL" \
+  || die "download failed: $URL"
+[[ -s $IN ]] || die "downloaded an empty file"
+
+# Native dimensions; the output is capped at MAX_WIDTH and forced even so the
+# h264 encode below never has to pad.
+IFS=, read -r SRC_W SRC_H < <(ffprobe -v error -select_streams v:0 \
+  -show_entries stream=width,height -of csv=p=0 "$IN" | head -n 1) || true
+[[ ${SRC_W:-0} -gt 0 && ${SRC_H:-0} -gt 0 ]] || die "could not read the GIF's dimensions"
+
+OUT_W=$SRC_W
+(( OUT_W > MAX_WIDTH )) && OUT_W=$MAX_WIDTH
+OUT_H=$(( (SRC_H * OUT_W + SRC_W / 2) / SRC_W ))
+OUT_W=$(( OUT_W - OUT_W % 2 )); (( OUT_W < 2 )) && OUT_W=2
+OUT_H=$(( OUT_H - OUT_H % 2 )); (( OUT_H < 2 )) && OUT_H=2
+
+# A bold face for the caption. fc-match answers with whatever the theme has;
+# Liberation Bold (what the Rust TUI hardcodes) is the fallback.
+FONT=$(fc-match -f '%{file}' 'sans:bold' 2>/dev/null || true)
+[[ -f ${FONT:-} ]] || FONT=/usr/share/fonts/liberation/LiberationSans-Bold.ttf
+[[ -f $FONT ]] || die "no bold font found (install ttf-liberation)"
+
+# One textfile per caption line: the filter never sees the text itself, so
+# colons, quotes and backslashes in a caption cannot break the filter graph.
+LINES=0
+if [[ -n $TEXT_FILE ]]; then
+  [[ -f $TEXT_FILE ]] || die "no such text file: $TEXT_FILE"
+  while IFS= read -r line || [[ -n $line ]]; do
+    printf '%s' "$line" > "$OUT_DIR/line$LINES.txt"
+    LINES=$((LINES + 1))
+  done < "$TEXT_FILE"
+  # Trailing blank lines still take vertical space; a caption that is only
+  # blank lines draws nothing.
+  while (( LINES > 0 )) && [[ ! -s $OUT_DIR/line$((LINES - 1)).txt ]]; do
+    LINES=$((LINES - 1))
+  done
+fi
+
+LINE_H=$(( SIZE * 120 / 100 ))
+BLOCK_H=$(( LINES * LINE_H ))
+BORDER=$(( SIZE * 12 / 100 ))
+(( BORDER < 2 )) && BORDER=2
+(( BORDER > 9 )) && BORDER=9
+
+# `vf <fps> <scale-width>` — the whole filter graph for one encode. Split out so
+# the size-limit retry can rebuild it smaller.
+build_filter() {
+  local fps=$1 w=$2 h=$3 pre drawtext="" i y
+  pre="fps=$fps,scale=$w:$h:flags=lanczos"
+  for (( i = 0; i < LINES; i++ )); do
+    [[ -s $OUT_DIR/line$i.txt ]] || continue
+    case $ANCHOR in
+      top)    y="20+$(( i * LINE_H ))";;
+      middle) y="(h-$BLOCK_H)/2+$(( i * LINE_H ))";;
+      bottom) y="h-$(( (LINES - i) * LINE_H ))-20";;
+    esac
+    drawtext+=",drawtext=textfile=$OUT_DIR/line$i.txt:fontfile=$FONT"
+    drawtext+=":fontsize=$SIZE:fontcolor=$FONT_COLOR:borderw=$BORDER:bordercolor=black@0.9"
+    drawtext+=":expansion=none:x=(w-text_w)/2:y=$y"
+  done
+  printf '%s%s,split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=3' \
+    "$pre" "$drawtext"
+}
+
+run_ffmpeg() {
+  local log=$OUT_DIR/ffmpeg.log
+  if ! ffmpeg -y -v error -i "$IN" -filter_complex "$1" -loop 0 "$OUT_GIF" >"$log" 2>&1; then
+    echo "ffmpeg failed:" >&2
+    tail -n 12 "$log" >&2
+    exit 1
+  fi
+}
+
+say "Rendering…"
+run_ffmpeg "$(build_filter 15 "$OUT_W" "$OUT_H")"
+
+# Oversized results get one cheaper pass (fewer frames, smaller frame), like
+# render.rs does — a 20MB GIF is useless in a chat app anyway.
+if [[ $(stat -c %s "$OUT_GIF") -gt $SIZE_LIMIT ]]; then
+  say "Shrinking…"
+  SMALL_W=$(( OUT_W * 2 / 3 )); SMALL_W=$(( SMALL_W - SMALL_W % 2 )); (( SMALL_W < 2 )) && SMALL_W=2
+  SMALL_H=$(( OUT_H * 2 / 3 )); SMALL_H=$(( SMALL_H - SMALL_H % 2 )); (( SMALL_H < 2 )) && SMALL_H=2
+  # The caption is laid out in output pixels, so it shrinks with the frame.
+  SIZE=$(( SIZE * 2 / 3 )); (( SIZE < 8 )) && SIZE=8
+  LINE_H=$(( SIZE * 120 / 100 )); BLOCK_H=$(( LINES * LINE_H ))
+  run_ffmpeg "$(build_filter 12 "$SMALL_W" "$SMALL_H")"
+fi
+
+say "Encoding MP4…"
+if ! ffmpeg -y -v error -i "$OUT_GIF" \
+    -c:v libx264 -movflags +faststart -pix_fmt yuv420p \
+    -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' "$OUT_MP4" >"$OUT_DIR/ffmpeg-mp4.log" 2>&1; then
+  echo "ffmpeg (mp4) failed:" >&2
+  tail -n 12 "$OUT_DIR/ffmpeg-mp4.log" >&2
+  exit 1
+fi
+
+echo "gif: $OUT_GIF"
+echo "mp4: $OUT_MP4"
+
+notify() {
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send "GIF Captioner" "$1" >/dev/null 2>&1 || true
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send -t 3000 "GIF Captioner" "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+if $COPY; then
+  command -v wl-copy >/dev/null || die "wl-clipboard is not installed"
+  say "Copying…"
+  # Two separate claims so a clipboard history (cliphist) records two entries:
+  # the animated GIF, then the MP4 as a file reference. Same two-step the
+  # desktop app does; the MP4 lands last so a plain paste attaches the video.
+  wl-copy --type image/gif < "$OUT_GIF"
+  sleep 0.45
+  printf 'file://%s\n' "$OUT_MP4" | wl-copy --type text/uri-list
+  say "Copied GIF + MP4 to the clipboard"
+  notify "Copied GIF + MP4 to the clipboard"
+else
+  say "Done (not copied)"
+fi
+
+# Keep the cache from growing forever: drop all but the 20 newest renders.
+# NUL-delimited and -type d, so a symlink or an odd name in the cache directory
+# cannot steer the delete somewhere else.
+if [[ -d $CACHE/renders ]]; then
+  find "$CACHE/renders" -mindepth 1 -maxdepth 1 -type d -print0 \
+    | sort -zr | tail -z -n +21 | xargs -0r rm -rf --
+fi
