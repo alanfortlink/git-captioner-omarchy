@@ -28,6 +28,10 @@ function dim(value) {
   return isFinite(n) && n > 0 ? n : 0
 }
 
+// Giphy refuses offsets past this on the search endpoint.
+var MAX_OFFSET = 4999
+
+// -> { items: [...], total: <how many results Giphy claims to have> }
 function parseSearch(raw) {
   var body = JSON.parse(String(raw || ""))
   var data = (body && body.data) || []
@@ -46,7 +50,8 @@ function parseSearch(raw) {
       height: dim(original.height)
     })
   }
-  return out
+  var pagination = (body && body.pagination) || {}
+  return { items: out, total: dim(pagination.total_count) }
 }
 
 // What the render script will produce: width capped at MAX_WIDTH, both sides

@@ -97,7 +97,7 @@ validate the checkout itself, not the link.
 | Where | Keys |
 | --- | --- |
 | Search field | type a query · `Enter` searches · `↓` or `Tab` moves into the grid · `Ctrl+,` settings · `Esc` clears, then closes |
-| Grid | `hjkl` or arrows · `Enter` captions the GIF under the cursor · `g` / `G` first / last · `/` or `k` on the top row goes back to the field · `,` settings · `Esc` closes |
+| Grid | `hjkl` or arrows · `Enter` captions the GIF under the cursor · `g` / `G` first / last · `n` loads the next page · `/` or `k` on the top row goes back to the field · `,` settings · `Esc` closes |
 | Caption | type (`Enter` = new line) · **`Ctrl+Enter`** (or `Ctrl+R`) renders and copies · `Tab` / `Shift+Tab` cycles caption → position → color → size · `Enter` on the colour opens the palette (arrows + `Enter` to pick) · `Ctrl+1/2/3` top / middle / bottom · `Ctrl+↑` / `Ctrl+↓` size · `Esc` back to the grid |
 
 Under the caption box: position (top / middle / bottom), color and size. Click
@@ -111,6 +111,11 @@ has told you so, there is nothing left to look at. A failed one stays open with
 the error. Closing throws the session away either way: every open starts on an
 empty search, and a render still running when you close finishes and copies
 regardless.
+
+Results come 25 at a time and keep coming: walking the cursor into the last row
+(or scrolling there with the mouse, or pressing `n`) appends the next page, so
+the grid runs to the end of what Giphy has for the query. The counter in the
+corner shows where you are — `12/50+`, with the `+` while there is more.
 
 The live preview is laid out in the render's own pixel space — what you see is
 what gets burned in.

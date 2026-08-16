@@ -51,6 +51,10 @@ Panel {
   property bool searching: false
   property string statusText: ""
   property int searchSeq: 0
+  property string activeQuery: ""          // the query the current results came from
+  property int nextOffset: 0               // where the next page starts
+  property int totalResults: 0             // what Giphy claims exists for the query
+  property bool pageWasFull: false         // the last page came back full → there is more
 
   property var selected: null              // the picked result, or null
   property string caption: ""
@@ -158,6 +162,10 @@ Panel {
     searchFocus = "field"
     searching = false
     searchSeq++              // a search still in flight lands on nothing
+    activeQuery = ""
+    nextOffset = 0
+    totalResults = 0
+    pageWasFull = false
     selected = null
     previewFile = ""
     caption = ""
@@ -459,13 +467,19 @@ Panel {
   }
 
   // ---- search ----
-  function search() {
-    var query = searchField.text.trim()
-    if (query === "" || !hasKey) return
+  // Giphy pages with limit/offset. Page 1 replaces the grid; every page after
+  // it is appended, so the grid just keeps going as you walk down it.
+  function search(offset) {
+    var page = Math.max(0, offset || 0)
+    var query = page > 0 ? activeQuery : searchField.text.trim()
+    if (query === "" || !hasKey || searching) return
+    if (page > Model.MAX_OFFSET) return
+    activeQuery = query
     searching = true
-    statusText = "Searching “" + query + "”…"
+    statusText = page > 0 ? "Loading more…" : "Searching “" + query + "”…"
     searchSeq++
     searchProc.seq = searchSeq
+    searchProc.offset = page
     searchProc.running = false
     // The key goes through the environment, never argv: /proc/<pid>/cmdline is
     // world-readable, so a key on the command line is a key any local process
@@ -474,19 +488,45 @@ Panel {
     searchProc.command = ["sh", "-c",
       'exec curl -fsS --max-time 10 --get' +
       ' --data-urlencode "api_key=$GIF_CAPTIONER_GIPHY_KEY"' +
-      ' --data-urlencode "q=$1" --data-urlencode "limit=$2" --data-urlencode "offset=0"' +
-      ' --data-urlencode "rating=$3" --data-urlencode "bundle=messaging_non_clips" -- "$4"',
-      "gif-captioner-search", query, String(Model.PAGE_SIZE),
+      ' --data-urlencode "q=$1" --data-urlencode "limit=$2" --data-urlencode "offset=$3"' +
+      ' --data-urlencode "rating=$4" --data-urlencode "bundle=messaging_non_clips" -- "$5"',
+      "gif-captioner-search", query, String(Model.PAGE_SIZE), String(page),
       String(setting("rating", "pg-13")), Model.ENDPOINT]
     searchProc.running = true
   }
 
-  function applyResults(list) {
+  function applyResults(page, offset) {
+    var list = page.items || []
+    searching = false
+    totalResults = page.total || 0
+    // A short page means Giphy has nothing more for this query.
+    pageWasFull = list.length >= Model.PAGE_SIZE
+
+    if (offset > 0) {
+      if (list.length === 0) { statusText = ""; return }
+      results = results.concat(list)
+      nextOffset = offset + list.length
+      statusText = ""
+      return
+    }
+
     results = list
     cursor = 0
-    searching = false
+    nextOffset = list.length
     statusText = list.length === 0 ? "No results." : ""
     if (list.length > 0) focusGrid()
+  }
+
+  // Is there another page, and are we allowed to ask for it?
+  readonly property bool hasMore: results.length > 0 && pageWasFull
+    && nextOffset <= Model.MAX_OFFSET
+    && (totalResults === 0 || results.length < totalResults)
+
+  // Load the next page as the cursor (or a scroll) reaches the last row, so
+  // walking down the grid never stops at 25.
+  function maybeLoadMore() {
+    if (!hasMore || searching) return
+    if (cursor >= results.length - columns) search(nextOffset)
   }
 
   function focusGrid() {
@@ -506,6 +546,7 @@ Panel {
     if (index < 0 || index >= results.length) return
     cursor = index
     grid.positionViewAtIndex(cursor, GridView.Contain)
+    maybeLoadMore()
   }
 
   function moveCursor(dx, dy) {
@@ -523,6 +564,7 @@ Panel {
     if (stage !== "search") return
     if (text === "/") { focusQuery(); return }
     if (text === ",") { openSettings(); return }
+    if (text === "n") { search(nextOffset); return }     // the TUI's next-page key
     if (text === "g") setCursor(0)
     else if (text === "G") setCursor(results.length - 1)
   }
@@ -730,6 +772,7 @@ Panel {
   Process {
     id: searchProc
     property int seq: 0
+    property int offset: 0
     // Collected, not inherited: curl's stderr would otherwise land in the
     // shell's journal.
     stderr: StdioCollector { onStreamFinished: searchProc.errText = String(text).trim() }
@@ -738,7 +781,7 @@ Panel {
       onStreamFinished: {
         if (searchProc.seq !== root.searchSeq) return   // a newer search won
         try {
-          root.applyResults(Model.parseSearch(text))
+          root.applyResults(Model.parseSearch(text), searchProc.offset)
         } catch (e) {
           root.searching = false
           root.statusText = "Giphy returned something unreadable."
@@ -916,7 +959,7 @@ Panel {
           foreground: root.fg
           verticalPadding: Style.spacing.controlPaddingY
           placeholderText: "Search GIFs…"
-          onAccepted: root.search()
+          onAccepted: root.search(0)
           // Down and Tab step into the grid; taken before the field so Tab
           // never wanders off into Qt's own focus chain.
           Keys.priority: Keys.BeforeItem
@@ -965,6 +1008,9 @@ Panel {
           cellHeight: cellWidth
           boundsBehavior: Flickable.StopAtBounds
           model: root.results
+          // Scrolling to the bottom pulls the next page in, same as walking
+          // the cursor into the last row.
+          onAtYEndChanged: if (atYEnd && root.hasMore && !root.searching) root.search(root.nextOffset)
 
           delegate: Item {
             id: cell
@@ -1033,7 +1079,7 @@ Panel {
             anchors.rightMargin: Style.spacing.md
             anchors.verticalCenter: parent.verticalCenter
             text: root.statusText !== "" ? root.statusText
-                : root.searchFocus === "grid" ? "hjkl move · ↵ caption · / search · , settings"
+                : root.searchFocus === "grid" ? "hjkl move · ↵ caption · n more · , settings"
                 : "↵ search · ↓ results · ctrl+, settings · esc close"
             color: root.statusText !== "" ? Color.accent : root.dim
             font.family: root.fontFamily
@@ -1046,7 +1092,7 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             visible: root.results.length > 0
-            text: (root.cursor + 1) + "/" + root.results.length
+            text: (root.cursor + 1) + "/" + root.results.length + (root.hasMore ? "+" : "")
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
