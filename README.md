@@ -165,14 +165,26 @@ straight into the search field.
 
 ## What lands on the clipboard
 
-Two claims, so a clipboard history (cliphist) records both:
+A Wayland clipboard claim carries **one** representation, and the last claim
+wins — there is no "offer the GIF and the MP4 and let the app pick". So a render
+copies exactly one thing, and the widget setting **Copy to the clipboard as**
+decides which:
 
-1. the captioned animated **GIF** (`image/gif`)
-2. the **MP4** as a file reference (`text/uri-list`) — this is the one most chat
-   apps accept, and it is what a plain paste attaches
+| Setting | What is copied | Paste behaviour |
+| --- | --- | --- |
+| **GIF file** (default) | `text/uri-list` with the `.gif` | Chat apps attach the file, so it stays animated — this is what "send a GIF" usually means |
+| **MP4 file** | `text/uri-list` with the `.mp4` | For apps that will not take a GIF, or that re-encode it anyway |
+| **GIF image** | `image/gif` bytes | Pastes straight into an image editor; image-only targets often flatten it to one frame |
 
-Both files live in `~/.cache/gif-captioner/renders/<timestamp>/`; the twenty
-newest renders are kept.
+Both files are always written to `~/.cache/gif-captioner/renders/<timestamp>/`
+(the twenty newest renders are kept), so you can attach either one by hand
+whatever the setting says.
+
+Clipboard history managers are their own story: Omarchy's history watches
+`text` and `image/png` only, so a file reference shows up there as its path and
+a GIF image does not show up at all — and a manager that stores images by
+decoding them will hand you a single frame when you paste from its history.
+Pasting the live clipboard right after the render is always the faithful path.
 
 ## How it works
 
@@ -190,7 +202,7 @@ smaller pass. The script works on its own too:
 ```bash
 printf 'when the tests\npass on the first try\n' > /tmp/caption.txt
 bin/gif-captioner-render --url <gif url> --text-file /tmp/caption.txt \
-  --anchor bottom --color '#ffff00' --size 32 --no-copy
+  --anchor bottom --color "#ffff00" --size 20 --no-copy
 ```
 
 ## Troubleshooting

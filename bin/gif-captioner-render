@@ -4,7 +4,8 @@
 # usable on its own:
 #
 #   gif-captioner-render --url URL [--text-file FILE] [--anchor top|middle|bottom]
-#                        [--color '#ffffff'] [--size 32] [--no-copy] [--out-dir DIR]
+#                        [--color '#ffffff'] [--size 20] [--out-dir DIR]
+#                        [--copy-as gif-file|mp4-file|gif-image|none]
 #
 # Progress goes to stdout as `status: …` lines, the results as `gif: <path>` /
 # `mp4: <path>`; anything that failed goes to stderr with a non-zero exit.
@@ -12,15 +13,15 @@
 # The recipe mirrors the other two gif-captioner apps: one drawtext filter per
 # caption line (each line centered on its own), fps=15 + lanczos downscale to
 # max 360px wide, then a full palettegen/paletteuse pass so busy frames don't
-# speckle. The MP4 is what most chat apps actually accept.
+# speckle. Both files are kept; --copy-as decides which one the clipboard gets.
 set -euo pipefail
 
 URL=""
 TEXT_FILE=""
 ANCHOR="bottom"
 COLOR="#ffffff"
-SIZE=32
-COPY=true
+SIZE=20
+COPY_AS=gif-file          # gif-file | mp4-file | gif-image | none
 OUT_DIR=""
 
 MAX_WIDTH=360
@@ -38,13 +39,15 @@ while [[ $# -gt 0 ]]; do
     --color) COLOR=${2:-}; shift 2;;
     --size) SIZE=${2:-}; shift 2;;
     --out-dir) OUT_DIR=${2:-}; shift 2;;
-    --no-copy) COPY=false; shift;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0;;
+    --copy-as) COPY_AS=${2:-}; shift 2;;
+    --no-copy) COPY_AS=none; shift;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0;;
     *) die "unknown argument: $1";;
   esac
 done
 
 [[ -n $URL ]] || die "--url is required"
+case $COPY_AS in gif-file|mp4-file|gif-image|none) ;; *) die "--copy-as must be gif-file, mp4-file, gif-image or none";; esac
 # The URL comes from a Giphy API response, i.e. from the network: keep it to
 # plain https so a crafted response cannot turn it into a curl option, another
 # protocol (file://, dict://) or a plaintext fetch.
@@ -185,20 +188,44 @@ notify() {
   fi
 }
 
-if $COPY; then
-  command -v wl-copy >/dev/null || die "wl-clipboard is not installed"
-  say "Copying…"
-  # Two separate claims so a clipboard history (cliphist) records two entries:
-  # the animated GIF, then the MP4 as a file reference. Same two-step the
-  # desktop app does; the MP4 lands last so a plain paste attaches the video.
-  wl-copy --type image/gif < "$OUT_GIF"
-  sleep 0.45
-  printf 'file://%s\n' "$OUT_MP4" | wl-copy --type text/uri-list
-  say "Copied GIF + MP4 to the clipboard"
-  notify "Copied GIF + MP4 to the clipboard"
-else
-  say "Done (not copied)"
-fi
+# A Wayland clipboard claim carries ONE representation, and whoever claims last
+# wins — there is no "offer the GIF and the MP4 and let the app choose" with
+# wl-copy. So: copy exactly one thing, and let the caller say which.
+#
+#   gif-file (default)  the .gif as a file reference. Chat apps attach the file,
+#                       so the animation survives — this is what "send a GIF"
+#                       means in practice.
+#   mp4-file            the .mp4 as a file reference, for apps that will not
+#                       take a GIF (WhatsApp Web) or that re-encode it anyway.
+#   gif-image           the GIF's bytes as image/gif. Pastes straight into
+#                       editors, but image-only apps and clipboard histories
+#                       tend to flatten it to a still frame.
+case $COPY_AS in
+  none)
+    say "Done (not copied)"
+    ;;
+  gif-image)
+    command -v wl-copy >/dev/null || die "wl-clipboard is not installed"
+    say "Copying…"
+    wl-copy --type image/gif < "$OUT_GIF" >/dev/null 2>&1
+    say "Copied the GIF image to the clipboard"
+    notify "Copied the GIF image — paste it straight in"
+    ;;
+  mp4-file)
+    command -v wl-copy >/dev/null || die "wl-clipboard is not installed"
+    say "Copying…"
+    printf 'file://%s\r\n' "$OUT_MP4" | wl-copy --type text/uri-list >/dev/null 2>&1
+    say "Copied the MP4 file to the clipboard"
+    notify "Copied the MP4 file — paste to attach it"
+    ;;
+  *)
+    command -v wl-copy >/dev/null || die "wl-clipboard is not installed"
+    say "Copying…"
+    printf 'file://%s\r\n' "$OUT_GIF" | wl-copy --type text/uri-list >/dev/null 2>&1
+    say "Copied the GIF file to the clipboard"
+    notify "Copied the GIF file — paste to attach it"
+    ;;
+esac
 
 # Keep the cache from growing forever: drop all but the 20 newest renders.
 # NUL-delimited and -type d, so a symlink or an odd name in the cache directory

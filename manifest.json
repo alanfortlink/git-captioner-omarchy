@@ -22,6 +22,7 @@
       "anchor": "Bottom",
       "color": "#ffffff",
       "fontSize": 20,
+      "copy": "GIF file",
       "rating": "pg-13",
       "shortcut": ""
     },
@@ -55,6 +56,14 @@
         "max": 200,
         "step": 2,
         "defaultValue": 20
+      },
+      {
+        "key": "copy",
+        "type": "enum",
+        "label": "Copy to the clipboard as",
+        "options": ["GIF file", "MP4 file", "GIF image"],
+        "defaultValue": "GIF file",
+        "description": "A clipboard claim carries one representation. A file reference keeps the animation when you paste it into a chat; GIF image pastes the frames straight into an editor but often arrives as a single frame."
       },
       {
         "key": "rating",

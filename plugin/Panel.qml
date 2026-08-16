@@ -57,6 +57,15 @@ Panel {
   property string anchorMode: String(setting("anchor", "Bottom")).toLowerCase()
   property string captionColor: Model.normalizeHex(setting("color", "#ffffff")) || "#ffffff"
   property int captionSize: setting("fontSize", 20)
+  // What a render puts on the clipboard. A Wayland claim carries one
+  // representation and the last claim wins, so this is a choice, not a
+  // combination: the .gif as a file (animation survives the paste), the .mp4 as
+  // a file (for apps that refuse GIFs), or the GIF's bytes as an image (pastes
+  // straight into editors, but image-only targets and clipboard histories tend
+  // to flatten it to one frame).
+  readonly property var copyModes: ({ "GIF file": "gif-file", "MP4 file": "mp4-file",
+                                      "GIF image": "gif-image" })
+  readonly property string copyAs: copyModes[String(setting("copy", "GIF file"))] || "gif-file"
   // Tools the render script needs. Checked at startup and on every open, so a
   // half-installed system says so instead of failing at render time.
   property var missingTools: []
@@ -656,7 +665,8 @@ Panel {
       "--url", String(selected.url),
       "--anchor", anchorMode,
       "--color", color,
-      "--size", String(captionSize)]
+      "--size", String(captionSize),
+      "--copy-as", copyAs]
     renderProc.running = true
   }
 
