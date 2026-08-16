@@ -106,9 +106,11 @@ can walk with the arrows and pick with `Enter`; the field next to it still takes
 any `#rrggbb` you type. All three default to whatever the widget's settings say
 (Setup > Plugins), so your usual look is one keystroke away every time.
 
-Closing the panel throws the session away: every open starts on an empty search.
-A render that is already running still finishes and copies, even with the panel
-closed.
+A successful render closes the panel — the files are copied and the notification
+has told you so, there is nothing left to look at. A failed one stays open with
+the error. Closing throws the session away either way: every open starts on an
+empty search, and a render still running when you close finishes and copies
+regardless.
 
 The live preview is laid out in the render's own pixel space — what you see is
 what gets burned in.

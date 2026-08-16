@@ -767,7 +767,12 @@ Panel {
     stderr: StdioCollector { onStreamFinished: renderProc.errText = String(text).trim() }
     onExited: function(code) {
       root.rendering = false
-      if (code === 0) return
+      if (code === 0) {
+        // Rendered, copied, notification sent: the job is done, so get out of
+        // the way. A failure keeps the panel open — that one you have to read.
+        root.close()
+        return
+      }
       var tail = renderProc.errText.split("\n").slice(-2).join(" ")
       root.statusText = tail !== "" ? "Failed: " + tail : "Render failed (" + code + ")"
       renderProc.errText = ""
